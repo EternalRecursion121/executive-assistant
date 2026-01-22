@@ -77,8 +77,12 @@ def check_permission_for_user(user_id: str, capability: str) -> bool:
     else:
         role = perms.get("roles", {}).get(user.get("role", "none"), {})
 
-    allow = set(user.get("allow", []) if user else role.get("allow", []))
-    deny = set(user.get("deny", []) if user else role.get("deny", []))
+    # Get permissions from role, with optional user-level overrides
+    allow = set(role.get("allow", []))
+    deny = set(role.get("deny", []))
+    if user:
+        allow.update(user.get("allow", []))
+        deny.update(user.get("deny", []))
 
     if "*" in allow and capability not in deny:
         return True

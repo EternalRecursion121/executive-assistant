@@ -227,9 +227,92 @@ async def bot_status(ctx: commands.Context):
     )
 
 
+@bot.command(name="restart")
+async def restart_bot(ctx: commands.Context):
+    """Restart the bot (admin only)."""
+    if not is_allowed_context(ctx.message):
+        return
+
+    # Check admin permission
+    user_id = str(ctx.author.id)
+    perms = get_user_permissions(user_id)
+    if perms.get("role") != "admin":
+        await ctx.send("Only admins can restart the bot.")
+        return
+
+    await ctx.send("Restarting... 🔄")
+    logger.info(f"Restart requested by {perms.get('name', user_id)}")
+
+    # Write restart signal file with channel to notify on return
+    restart_file = WORKSPACE / "state" / "restart_requested"
+    restart_file.write_text(str(ctx.channel.id))
+
+    # Exit - the wrapper script will restart us
+    await bot.close()
+
+
+@bot.command(name="reload")
+async def reload_modules(ctx: commands.Context):
+    """Hot reload modules without full restart (admin only)."""
+    if not is_allowed_context(ctx.message):
+        return
+
+    # Check admin permission
+    user_id = str(ctx.author.id)
+    perms = get_user_permissions(user_id)
+    if perms.get("role") != "admin":
+        await ctx.send("Only admins can reload modules.")
+        return
+
+    try:
+        import importlib
+        import assistant_prompt
+        import permissions
+        import context_builder as ctx_builder_module
+
+        importlib.reload(assistant_prompt)
+        importlib.reload(permissions)
+        importlib.reload(ctx_builder_module)
+
+        # Re-initialize context builder with fresh module
+        global context_builder
+        context_builder = ctx_builder_module.ContextBuilder(workspace=WORKSPACE)
+
+        await ctx.send("Modules reloaded! ✨")
+        logger.info(f"Hot reload performed by {perms.get('name', user_id)}")
+    except Exception as e:
+        await ctx.send(f"Reload failed: {e}")
+        logger.error(f"Hot reload failed: {e}", exc_info=True)
+
+
 def main():
     """Run the bot."""
     logger.info("Starting Iris...")
+
+    # Check if we're coming back from a restart
+    restart_file = WORKSPACE / "state" / "restart_requested"
+    notify_channel = None
+    if restart_file.exists():
+        try:
+            notify_channel = int(restart_file.read_text().strip())
+        except:
+            pass
+        restart_file.unlink()
+
+    # If we need to notify a channel after restart, do it on_ready
+    if notify_channel:
+        @bot.event
+        async def on_ready_notify():
+            try:
+                channel = bot.get_channel(notify_channel)
+                if channel:
+                    await channel.send("Back online! ✨")
+            except Exception as e:
+                logger.error(f"Failed to send restart notification: {e}")
+
+        # Register as a listener (in addition to existing on_ready)
+        bot.add_listener(on_ready_notify, "on_ready")
+
     bot.run(DISCORD_TOKEN)
 
 

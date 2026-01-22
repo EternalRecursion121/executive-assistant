@@ -5,6 +5,7 @@ BOT_DIR="/home/executive-assistant"
 PID_FILE="/tmp/iris-bot.pid"
 LOG_FILE="/tmp/iris-bot.log"
 VENV_DIR="$BOT_DIR/venv"
+RUN_USER="iris"
 
 # Colors for output
 RED='\033[0;31m'
@@ -36,9 +37,21 @@ case "$1" in
             export $(grep -v '^#' "$BOT_DIR/.env" | xargs)
         fi
 
-        # Start bot in background
-        nohup python bot.py >> "$LOG_FILE" 2>&1 &
-        echo $! > "$PID_FILE"
+        # Build env string from .env file
+        ENV_EXPORTS=""
+        if [ -f "$BOT_DIR/.env" ]; then
+            ENV_EXPORTS=$(grep -v '^#' "$BOT_DIR/.env" | grep -v '^$' | sed 's/^/export /' | tr '\n' ';')
+        fi
+
+        # Start bot in background as iris user
+        sudo -u "$RUN_USER" bash -c "export PATH=\"/home/iris/.local/node_modules/.bin:\$PATH\"; $ENV_EXPORTS source \"$VENV_DIR/bin/activate\" && cd \"$BOT_DIR\" && nohup python bot.py >> \"$LOG_FILE\" 2>&1 & echo \$!" > "$PID_FILE"
+
+        # Wait a moment and get actual python PID
+        sleep 1
+        PYTHON_PID=$(pgrep -u "$RUN_USER" -f "python bot.py" | tail -1)
+        if [ -n "$PYTHON_PID" ]; then
+            echo "$PYTHON_PID" > "$PID_FILE"
+        fi
 
         sleep 2
         if kill -0 $(cat "$PID_FILE") 2>/dev/null; then
@@ -51,22 +64,22 @@ case "$1" in
         ;;
 
     stop)
+        # Kill by PID file
         if [ -f "$PID_FILE" ]; then
             PID=$(cat "$PID_FILE")
             if kill -0 "$PID" 2>/dev/null; then
-                kill "$PID"
-                sleep 2
-                if kill -0 "$PID" 2>/dev/null; then
-                    kill -9 "$PID"
-                fi
-                echo -e "${GREEN}Bot stopped${NC}"
-            else
-                echo -e "${YELLOW}Bot was not running${NC}"
+                kill "$PID" 2>/dev/null
+                sleep 1
             fi
             rm -f "$PID_FILE"
-        else
-            echo -e "${YELLOW}No PID file found${NC}"
         fi
+
+        # Also kill any orphan bot.py processes owned by RUN_USER
+        pkill -u "$RUN_USER" -f "python bot.py" 2>/dev/null
+        sleep 1
+        pkill -9 -u "$RUN_USER" -f "python bot.py" 2>/dev/null
+
+        echo -e "${GREEN}Bot stopped${NC}"
         ;;
 
     restart)

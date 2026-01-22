@@ -2,8 +2,11 @@
 
 import asyncio
 import json
+import logging
 from pathlib import Path
 from typing import Optional
+
+logger = logging.getLogger(__name__)
 
 
 class ClaudeClient:
@@ -57,7 +60,9 @@ class ClaudeClient:
             cmd = [
                 self.claude_path,
                 "--print",
+                "--verbose",
                 "--output-format", "stream-json",
+                "--dangerously-skip-permissions",
             ]
 
             if system_prompt:
@@ -67,6 +72,8 @@ class ClaudeClient:
                 cmd.extend(["--resume", session_id])
 
             cmd.append(message)
+
+            logger.info(f"Running claude command: {' '.join(cmd[:6])}...")
 
             # Execute Claude CLI
             process = await asyncio.create_subprocess_exec(
@@ -96,25 +103,36 @@ class ClaudeClient:
 
                     try:
                         data = json.loads(line.decode())
+                        logger.debug(f"Claude JSON type: {data.get('type')}")
 
                         # Extract session ID from init message
                         if data.get("type") == "system" and data.get("subtype") == "init":
                             new_session_id = data.get("session_id")
 
-                        # Collect response text from assistant messages
-                        if data.get("type") == "assistant" and "message" in data:
-                            for block in data["message"].get("content", []):
-                                if block.get("type") == "text":
-                                    full_response += block.get("text", "")
+                        # Get final response from result message
+                        if data.get("type") == "result":
+                            logger.info(f"Result message: {json.dumps(data)[:500]}")
+                            full_response = data.get("result", "")
+                            if data.get("session_id"):
+                                new_session_id = data.get("session_id")
 
-                    except json.JSONDecodeError:
+                    except json.JSONDecodeError as e:
+                        logger.warning(f"JSON decode error: {e}, line: {line[:100]}")
                         continue
 
                 await process.wait()
 
+                # Check stderr for errors
+                stderr = await process.stderr.read()
+                if stderr:
+                    logger.error(f"Claude stderr: {stderr.decode()}")
+
             except Exception as e:
                 process.kill()
+                logger.error(f"Exception in Claude call: {e}")
                 return f"Error communicating with Claude: {e}"
+
+            logger.info(f"Claude response length: {len(full_response)}")
 
             # Save session for conversation continuity
             if new_session_id:

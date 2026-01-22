@@ -4,3 +4,4 @@ python-dateutil>=2.8.0
 google-auth-oauthlib>=1.2.0
 google-api-python-client>=2.100.0
 todoist-api-python>=2.1.0
+boto3>=1.34.0

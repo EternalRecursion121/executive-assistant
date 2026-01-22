@@ -2,7 +2,7 @@
 """Reminder system with natural language time parsing.
 
 Usage:
-    python reminders.py add <user_id> "<message>" "<time>"
+    python reminders.py add <user_id> "<message>" "<time>" [--recurring daily|weekly|weekdays]
     python reminders.py list [user_id]
     python reminders.py remove <reminder_id>
     python reminders.py check  # Returns JSON of due reminders (for bot)
@@ -12,6 +12,11 @@ Time formats:
     - "tomorrow at 9am", "tomorrow 3pm"
     - "next monday 2pm"
     - "2024-01-15 14:00"
+
+Recurring options:
+    - daily: every day at the same time
+    - weekly: same day each week
+    - weekdays: Monday-Friday only
 """
 
 import json
@@ -48,8 +53,12 @@ def check_permission(user_id: str, capability: str = "reminders") -> bool:
     else:
         role = perms.get("roles", {}).get(user.get("role", "none"), {})
 
-    allow = set(user.get("allow", []) if user else role.get("allow", []))
-    deny = set(user.get("deny", []) if user else role.get("deny", []))
+    # Get permissions from role, with optional user-level overrides
+    allow = set(role.get("allow", []))
+    deny = set(role.get("deny", []))
+    if user:
+        allow.update(user.get("allow", []))
+        deny.update(user.get("deny", []))
 
     if "*" in allow and capability not in deny:
         return True
@@ -148,14 +157,17 @@ def parse_time(time_str: str) -> Optional[datetime]:
         return None
 
 
-def add_reminder(user_id: str, message: str, time_str: str) -> dict:
-    """Add a new reminder."""
+def add_reminder(user_id: str, message: str, time_str: str, recurring: Optional[str] = None) -> dict:
+    """Add a new reminder. Recurring can be: daily, weekly, weekdays."""
     if not check_permission(user_id, "reminders"):
         return {"error": "Permission denied: reminders not allowed for this user"}
 
     due_at = parse_time(time_str)
     if not due_at:
         return {"error": f"Could not parse time: {time_str}"}
+
+    if recurring and recurring not in ("daily", "weekly", "weekdays"):
+        return {"error": f"Invalid recurring option: {recurring}. Use: daily, weekly, weekdays"}
 
     reminders = load_reminders()
 
@@ -167,15 +179,24 @@ def add_reminder(user_id: str, message: str, time_str: str) -> dict:
         "created_at": datetime.now().isoformat(),
     }
 
+    if recurring:
+        reminder["recurring"] = recurring
+        # Store the target time for rescheduling
+        reminder["recurring_time"] = due_at.strftime("%H:%M")
+
     reminders.append(reminder)
     save_reminders(reminders)
 
-    return {
+    result = {
         "success": True,
         "id": reminder["id"],
         "message": message,
         "due_at": due_at.strftime("%Y-%m-%d %H:%M"),
     }
+    if recurring:
+        result["recurring"] = recurring
+
+    return result
 
 
 def list_reminders(user_id: Optional[str] = None) -> list[dict]:
@@ -188,14 +209,17 @@ def list_reminders(user_id: Optional[str] = None) -> list[dict]:
     # Sort by due date
     reminders.sort(key=lambda r: r.get("due_at", ""))
 
-    return [
-        {
+    result = []
+    for r in reminders:
+        entry = {
             "id": r["id"],
             "message": r["message"],
             "due_at": r["due_at"],
         }
-        for r in reminders
-    ]
+        if r.get("recurring"):
+            entry["recurring"] = r["recurring"]
+        result.append(entry)
+    return result
 
 
 def remove_reminder(reminder_id: str) -> dict:
@@ -212,8 +236,39 @@ def remove_reminder(reminder_id: str) -> dict:
     return {"success": True, "removed": reminder_id}
 
 
+def reschedule_recurring(reminder: dict, now: datetime) -> Optional[dict]:
+    """Calculate next occurrence for a recurring reminder."""
+    recurring = reminder.get("recurring")
+    if not recurring:
+        return None
+
+    # Parse the target time
+    time_str = reminder.get("recurring_time", "09:00")
+    hour, minute = map(int, time_str.split(":"))
+
+    if recurring == "daily":
+        next_date = now + timedelta(days=1)
+        next_due = next_date.replace(hour=hour, minute=minute, second=0, microsecond=0)
+    elif recurring == "weekly":
+        next_date = now + timedelta(days=7)
+        next_due = next_date.replace(hour=hour, minute=minute, second=0, microsecond=0)
+    elif recurring == "weekdays":
+        next_date = now + timedelta(days=1)
+        # Skip weekends (5=Saturday, 6=Sunday)
+        while next_date.weekday() >= 5:
+            next_date += timedelta(days=1)
+        next_due = next_date.replace(hour=hour, minute=minute, second=0, microsecond=0)
+    else:
+        return None
+
+    # Create new reminder with updated due date
+    new_reminder = reminder.copy()
+    new_reminder["due_at"] = next_due.isoformat()
+    return new_reminder
+
+
 def check_due_reminders() -> list[dict]:
-    """Check for due reminders and remove them. Returns JSON for the bot."""
+    """Check for due reminders and reschedule recurring ones. Returns JSON for the bot."""
     reminders = load_reminders()
     now = datetime.now()
 
@@ -225,6 +280,10 @@ def check_due_reminders() -> list[dict]:
             due_at = datetime.fromisoformat(reminder["due_at"])
             if due_at <= now:
                 due.append(reminder)
+                # Reschedule if recurring
+                rescheduled = reschedule_recurring(reminder, now)
+                if rescheduled:
+                    remaining.append(rescheduled)
             else:
                 remaining.append(reminder)
         except Exception:
@@ -247,9 +306,17 @@ def main():
 
     if command == "add":
         if len(sys.argv) < 5:
-            print("Usage: reminders.py add <user_id> <message> <time>")
+            print("Usage: reminders.py add <user_id> <message> <time> [--recurring daily|weekly|weekdays]")
             sys.exit(1)
-        result = add_reminder(sys.argv[2], sys.argv[3], sys.argv[4])
+
+        # Parse optional --recurring flag
+        recurring = None
+        if "--recurring" in sys.argv:
+            idx = sys.argv.index("--recurring")
+            if idx + 1 < len(sys.argv):
+                recurring = sys.argv[idx + 1]
+
+        result = add_reminder(sys.argv[2], sys.argv[3], sys.argv[4], recurring)
         print(json.dumps(result, indent=2))
 
     elif command == "list":
