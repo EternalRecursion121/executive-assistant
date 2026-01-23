@@ -15,7 +15,7 @@ class ClaudeClient:
     def __init__(
         self,
         workspace: Path,
-        timeout: int = 300,
+        timeout: int = 500,
         claude_path: str = "claude",
     ):
         self.workspace = Path(workspace)
@@ -54,9 +54,7 @@ class ClaudeClient:
             Claude's text response
         """
         async with self.lock:
-            session_id = self._get_session_id()
-
-            # Build command
+            # Build command (no session resume - keeps responses fast)
             cmd = [
                 self.claude_path,
                 "--print",
@@ -67,9 +65,6 @@ class ClaudeClient:
 
             if system_prompt:
                 cmd.extend(["--system-prompt", system_prompt])
-
-            if session_id:
-                cmd.extend(["--resume", session_id])
 
             cmd.append(message)
 
@@ -145,3 +140,56 @@ class ClaudeClient:
         async with self.lock:
             if self.session_file.exists():
                 self.session_file.unlink()
+
+    async def should_respond(
+        self,
+        context: str,
+        system_prompt: Optional[str] = None,
+    ) -> bool:
+        """Decide whether to respond to a message that wasn't directly addressed to us.
+
+        Uses a quick Claude call to decide if the message warrants a response.
+        """
+        decision_prompt = f"""You are observing a Discord channel. A message was sent that wasn't directly addressed to you.
+
+Context (recent messages):
+{context}
+
+Should you respond to this? Consider:
+- Is the message asking a question you can help with?
+- Is someone talking about something you have relevant insight on?
+- Would your input add value, or would it be intrusive?
+- Is this just casual chat that doesn't need your input?
+
+Reply with ONLY "yes" or "no" - nothing else."""
+
+        # Use a simpler, faster call without session persistence
+        cmd = [
+            self.claude_path,
+            "--print",
+            "--output-format", "text",
+            "--dangerously-skip-permissions",
+            "--model", "claude-haiku-4-20250514",  # Use haiku for fast decisions
+            "-p", decision_prompt,
+        ]
+
+        try:
+            process = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                cwd=str(self.workspace),
+            )
+
+            stdout, _ = await asyncio.wait_for(
+                process.communicate(),
+                timeout=30,  # Quick timeout for decision
+            )
+
+            response = stdout.decode().strip().lower()
+            logger.info(f"Should respond decision: {response}")
+            return response == "yes"
+
+        except Exception as e:
+            logger.error(f"Error in should_respond: {e}")
+            return False  # Default to not responding on error

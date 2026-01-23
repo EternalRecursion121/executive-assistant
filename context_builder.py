@@ -16,7 +16,7 @@ class ContextBuilder:
         # Ensure image directory exists
         self.image_dir.mkdir(parents=True, exist_ok=True)
 
-    async def build(self, message: discord.Message) -> str:
+    async def build(self, message: discord.Message, observe_only: bool = False) -> str:
         """Build context string from a Discord message.
 
         Includes:
@@ -27,6 +27,7 @@ class ContextBuilder:
 
         Args:
             message: The Discord message to build context from
+            observe_only: If True, this is for deciding whether to respond (lighter context)
 
         Returns:
             Formatted context string for Claude
@@ -44,10 +45,11 @@ class ContextBuilder:
             if history:
                 sections.append(history)
 
-        # Handle image attachments
-        images = await self._save_attachments(message)
-        if images:
-            sections.append(self._format_images(images))
+        # Handle image attachments (skip for observe_only to save processing)
+        if not observe_only:
+            images = await self._save_attachments(message)
+            if images:
+                sections.append(self._format_images(images))
 
         # Current message
         sections.append(self._format_message(message))

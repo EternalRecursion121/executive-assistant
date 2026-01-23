@@ -91,9 +91,11 @@ async def on_ready():
     logger.info(f"Bot ready: {bot.user} (ID: {bot.user.id})")
     logger.info(f"Connected to {len(bot.guilds)} guild(s)")
 
-    # Start reminder checker
+    # Start background tasks
     if not check_reminders.is_running():
         check_reminders.start()
+    if not check_dm_queue.is_running():
+        check_dm_queue.start()
 
 
 @bot.event
@@ -103,17 +105,13 @@ async def on_message(message: discord.Message):
     if message.author.bot:
         return
 
-    # Check if this is a DM or a mention in a guild
-    is_dm = isinstance(message.channel, discord.DMChannel)
-    is_mention = bot.user in message.mentions if message.guild else False
-
-    # Only respond to DMs or mentions
-    if not is_dm and not is_mention:
-        return
-
     # Check allowed context
     if not is_allowed_context(message):
         return
+
+    # Check if this is a DM or a mention in a guild
+    is_dm = isinstance(message.channel, discord.DMChannel)
+    is_mention = bot.user in message.mentions if message.guild else False
 
     # Remove bot mention from message content for cleaner processing
     content = message.content
@@ -123,16 +121,36 @@ async def on_message(message: discord.Message):
             await message.channel.send("Yes?")
             return
 
-
     # Check permissions first
     user_id = str(message.author.id)
     perms = get_user_permissions(user_id)
 
-    if not perms["allowed"]:
-        await message.channel.send(
-            "Sorry, you don't have permission to use this bot."
+    # For non-mentions in guilds, just observe (add to context) but check if should respond
+    if not is_dm and not is_mention:
+        # Add to context for awareness, then decide whether to respond
+        context = await context_builder.build(message, observe_only=True)
+
+        # If user has no permissions, just observe silently
+        if not perms["allowed"]:
+            return
+
+        # Ask Claude if this warrants a response
+        should_respond = await claude.should_respond(
+            context=context,
+            system_prompt=get_system_prompt(user_id),
         )
-        return
+
+        if not should_respond:
+            return
+
+        logger.info(f"Choosing to respond to {perms.get('name', user_id)}: {content[:50]}...")
+    else:
+        # Direct mention or DM - always respond if permitted
+        if not perms["allowed"]:
+            await message.channel.send(
+                "Sorry, you don't have permission to use this bot."
+            )
+            return
 
     logger.info(f"User {perms.get('name', user_id)} ({perms['role']}): {content[:50]}...")
 
@@ -195,6 +213,49 @@ async def check_reminders():
                 pass
     except Exception as e:
         logger.error(f"Error checking reminders: {e}")
+
+
+@tasks.loop(seconds=10)
+async def check_dm_queue():
+    """Check for queued DMs every 10 seconds."""
+    dm_script = Path("/home/executive-assistant/integrations/dm.py")
+    if not dm_script.exists():
+        return
+
+    try:
+        process = await asyncio.create_subprocess_exec(
+            sys.executable,
+            str(dm_script),
+            "check",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, _ = await process.communicate()
+
+        if stdout:
+            import json
+            try:
+                pending_dms = json.loads(stdout.decode())
+                for dm in pending_dms:
+                    user_id = dm.get("user_id")
+                    message_text = dm.get("message")
+                    if user_id and message_text:
+                        try:
+                            user = await bot.fetch_user(int(user_id))
+                            await user.send(message_text)
+                            logger.info(f"Sent DM to {user_id}: {message_text[:50]}...")
+                        except Exception as e:
+                            logger.error(f"Failed to send DM: {e}")
+            except json.JSONDecodeError:
+                pass
+    except Exception as e:
+        logger.error(f"Error checking DM queue: {e}")
+
+
+@check_dm_queue.before_loop
+async def before_check_dm_queue():
+    """Wait for bot to be ready before checking DM queue."""
+    await bot.wait_until_ready()
 
 
 @check_reminders.before_loop
