@@ -6,6 +6,7 @@ import json
 import logging
 import os
 import sys
+from datetime import datetime
 from pathlib import Path
 
 import discord
@@ -16,16 +17,49 @@ from permissions import get_user_permissions
 from claude_client import ClaudeClient
 from context_builder import ContextBuilder
 
+# Response tracking
+RESPONSE_STATS_FILE = Path("/home/iris/executive-assistant/workspace/state/response_stats.json")
+
+
+def track_response(success: bool, error: str = None):
+    """Track response success/failure for health monitoring."""
+    try:
+        stats = {"total": 0, "success": 0, "failure": 0, "recent": []}
+        if RESPONSE_STATS_FILE.exists():
+            stats = json.loads(RESPONSE_STATS_FILE.read_text())
+
+        stats["total"] += 1
+        if success:
+            stats["success"] += 1
+        else:
+            stats["failure"] += 1
+
+        # Keep last 20 responses for debugging
+        stats["recent"].append({
+            "time": datetime.now().isoformat(),
+            "success": success,
+            "error": error[:200] if error else None
+        })
+        stats["recent"] = stats["recent"][-20:]
+
+        RESPONSE_STATS_FILE.write_text(json.dumps(stats, indent=2))
+    except Exception:
+        pass  # Don't let tracking errors break the bot
+
 # Research threads state file
 RESEARCH_THREADS_STATE = Path("/home/iris/executive-assistant/workspace/state/research_threads.json")
 # Questions channel state file
 QUESTIONS_CHANNEL_STATE = Path("/home/iris/executive-assistant/workspace/state/questions_channel.json")
 
-# Configure logging
+# Configure logging - both stdout and file
+LOG_FILE = Path("/home/iris/executive-assistant/workspace/state/bot.log")
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
-    handlers=[logging.StreamHandler(sys.stdout)],
+    handlers=[
+        logging.StreamHandler(sys.stdout),
+        logging.FileHandler(LOG_FILE, mode='a'),
+    ],
 )
 logger = logging.getLogger(__name__)
 
@@ -338,9 +372,19 @@ async def on_message(message: discord.Message):
             else:
                 target_channel = message.channel
 
+            # Check for empty/error responses
+            if response == "No response received." or not response.strip():
+                logger.warning("Empty response from Claude")
+                track_response(False, "Empty response")
+                await target_channel.send("I wasn't able to generate a response. Let me try again or check if something's wrong.")
+                return
+
             # Send response, splitting if necessary
             for chunk in split_message(response):
                 await target_channel.send(chunk)
+
+            # Track successful response
+            track_response(True)
 
             # Also add Claude's response to conversation buffer
             context_builder.add_to_conversation_buffer(
@@ -350,6 +394,7 @@ async def on_message(message: discord.Message):
 
         except Exception as e:
             logger.error(f"Error processing message: {e}", exc_info=True)
+            track_response(False, str(e))
             await message.channel.send(
                 "Something went wrong processing your request. Please try again."
             )
