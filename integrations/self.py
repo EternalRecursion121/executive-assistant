@@ -18,10 +18,9 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional
 
-WORKSPACE = Path("/home/executive-assistant/workspace")
-STATE_DIR = WORKSPACE / "state"
-VAULT_DIR = WORKSPACE / "vaults" / "iris"
-CONTEXT_DIR = WORKSPACE / "context"
+from config import WORKSPACE, STATE_DIR, IRIS_VAULT, CONTEXT_DIR
+
+VAULT_DIR = IRIS_VAULT
 SELF_FILE = STATE_DIR / "self.json"
 
 

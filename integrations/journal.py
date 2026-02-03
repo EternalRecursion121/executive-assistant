@@ -19,7 +19,8 @@ import sys
 from datetime import datetime, timedelta
 from pathlib import Path
 
-STATE_DIR = Path("/home/executive-assistant/workspace/state")
+from config import STATE_DIR
+
 JOURNAL_DIR = STATE_DIR / "journal"
 TRIGGERS_FILE = STATE_DIR / "journal_triggers.json"
 

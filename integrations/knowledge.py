@@ -11,9 +11,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-# Vault paths
-SAMUEL_VAULT = Path("/home/executive-assistant/workspace/vaults/samuel")
-IRIS_VAULT = Path("/home/executive-assistant/workspace/vaults/iris")
+from config import SAMUEL_VAULT, IRIS_VAULT
 
 # Wikilink pattern: [[link]] or [[link|alias]]
 WIKILINK_PATTERN = re.compile(r'\[\[([^\]|]+)(?:\|[^\]]+)?\]\]')

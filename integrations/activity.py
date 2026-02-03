@@ -27,7 +27,8 @@ import sys
 from datetime import datetime, timedelta
 from pathlib import Path
 
-STATE_DIR = Path("/home/executive-assistant/workspace/state")
+from config import STATE_DIR
+
 ACTIVITY_FILE = STATE_DIR / "activity.json"
 
 ACTIVITY_TYPES = [

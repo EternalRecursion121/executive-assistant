@@ -36,15 +36,15 @@ except ImportError:
     print("pip install google-auth-oauthlib google-api-python-client")
     sys.exit(1)
 
+from config import WORKSPACE, STATE_DIR, PERMISSIONS_FILE
+
 SCOPES = [
     "https://www.googleapis.com/auth/calendar",           # Calendar read/write
     "https://www.googleapis.com/auth/drive",              # Drive read/write
     "https://www.googleapis.com/auth/gmail.readonly",     # Gmail read-only
 ]
-WORKSPACE = Path("/home/executive-assistant/workspace")
 CREDENTIALS_FILE = WORKSPACE / "credentials.json"
-TOKEN_FILE = WORKSPACE / "state" / "google_token.json"
-PERMISSIONS_FILE = WORKSPACE / "state" / "permissions.json"
+TOKEN_FILE = STATE_DIR / "google_token.json"
 
 
 def check_permission(capability: str) -> bool:

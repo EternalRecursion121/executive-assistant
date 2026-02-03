@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python3:*)",
+      "Bash(./botctl start:*)",
+      "Bash(su - iris -c \"timeout 30 claude --print --output-format text -p ''say hello''\")"
+    ]
+  }
+}

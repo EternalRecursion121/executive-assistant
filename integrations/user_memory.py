@@ -10,8 +10,9 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-STATE_DIR = Path("/home/executive-assistant/workspace/state")
-MEMORY_DIR = STATE_DIR / "user_memories"
+from config import USER_MEMORIES_DIR
+
+MEMORY_DIR = USER_MEMORIES_DIR
 MEMORY_DIR.mkdir(parents=True, exist_ok=True)
 
 

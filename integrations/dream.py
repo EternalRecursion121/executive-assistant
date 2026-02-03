@@ -22,11 +22,11 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional
 
-WORKSPACE = Path("/home/executive-assistant/workspace")
-STATE_DIR = WORKSPACE / "state"
+from config import WORKSPACE, STATE_DIR, SAMUEL_VAULT, IRIS_VAULT
+
 DREAMS_FILE = STATE_DIR / "dreams.json"
-VAULT_SAMUEL = WORKSPACE / "vaults" / "samuel"
-VAULT_IRIS = WORKSPACE / "vaults" / "iris"
+VAULT_SAMUEL = SAMUEL_VAULT
+VAULT_IRIS = IRIS_VAULT
 JOURNAL_DIR = STATE_DIR / "journal"
 ACTIVITY_FILE = STATE_DIR / "activity.json"
 

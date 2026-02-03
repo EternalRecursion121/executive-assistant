@@ -28,8 +28,9 @@ except ImportError:
 
 import io
 
-WORKSPACE = Path("/home/executive-assistant/workspace")
-TOKEN_FILE = WORKSPACE / "state" / "google_token.json"
+from config import STATE_DIR
+
+TOKEN_FILE = STATE_DIR / "google_token.json"
 
 SCOPES = [
     "https://www.googleapis.com/auth/calendar",

@@ -15,9 +15,9 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-WORKSPACE = Path("/home/executive-assistant/workspace")
-CONTEXT_DIR = WORKSPACE / "context"
-JOURNAL_DIR = WORKSPACE / "state" / "journal"
+from config import CONTEXT_DIR, STATE_DIR
+
+JOURNAL_DIR = STATE_DIR / "journal"
 
 
 def ensure_dirs():

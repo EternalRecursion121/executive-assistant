@@ -9,13 +9,16 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-STATE_DIR = Path("/home/executive-assistant/workspace/state")
+from config import STATE_DIR
+
 DM_QUEUE_FILE = STATE_DIR / "dm_queue.json"
 
 # Known users (for convenience)
 USERS = {
     "samuel": "672500045249249328",
     "xi": "208220776619311105",
+    "jacob": "746111068077817887",
+    "lou": "1068673093486248018",
 }
 
 

@@ -12,9 +12,22 @@ from pathlib import Path
 import boto3
 from botocore.config import Config
 
-# Load environment
-from dotenv import load_dotenv
-load_dotenv(Path(__file__).parent.parent / ".env")
+# Load environment (inline .env parsing to avoid dotenv dependency)
+def _load_env(path):
+    """Load .env file into os.environ."""
+    if not path.exists():
+        return
+    for line in path.read_text().splitlines():
+        line = line.strip()
+        if not line or line.startswith('#') or '=' not in line:
+            continue
+        key, _, value = line.partition('=')
+        key = key.strip()
+        value = value.strip().strip('"').strip("'")
+        if key and value:
+            os.environ.setdefault(key, value)
+
+_load_env(Path(__file__).parent.parent / ".env")
 
 # Configuration
 S3_ENDPOINT = os.environ.get("AWS_S3_ENDPOINT", "https://s3.eu-west-2.amazonaws.com/")
@@ -24,9 +37,11 @@ AWS_SECRET_KEY = os.environ.get("AWS_SECRET_ACCESS_KEY")
 BUCKET_NAME = os.environ.get("OBSIDIAN_BUCKET", "obsidian-vault-samuel")
 S3_PREFIX = os.environ.get("OBSIDIAN_PREFIX", "VAULT")
 
-LOCAL_VAULT = Path("/home/executive-assistant/workspace/vaults/samuel")
-SYNC_STATE_FILE = Path("/home/executive-assistant/workspace/state/vault_sync_state.json")
-LOG_FILE = Path("/home/executive-assistant/workspace/state/vault_sync.log")
+from config import SAMUEL_VAULT, STATE_DIR
+
+LOCAL_VAULT = SAMUEL_VAULT
+SYNC_STATE_FILE = STATE_DIR / "vault_sync_state.json"
+LOG_FILE = STATE_DIR / "vault_sync.log"
 
 
 def get_s3_client():

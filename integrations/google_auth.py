@@ -30,9 +30,10 @@ except ImportError:
     print("  pip install google-auth-oauthlib google-api-python-client")
     sys.exit(1)
 
-WORKSPACE = Path("/home/executive-assistant/workspace")
+from config import WORKSPACE, STATE_DIR
+
 CREDENTIALS_FILE = WORKSPACE / "credentials.json"
-TOKEN_FILE = WORKSPACE / "state" / "google_token.json"
+TOKEN_FILE = STATE_DIR / "google_token.json"
 
 # All scopes needed across integrations
 SCOPES = [
@@ -65,15 +66,17 @@ def authenticate() -> dict:
     try:
         flow = InstalledAppFlow.from_client_secrets_file(str(CREDENTIALS_FILE), SCOPES)
 
-        # Use console flow for headless environments
         print("\n🔐 Google Authentication (Calendar + Drive + Gmail)\n")
-        print("This will open a browser or provide a URL to authenticate.")
+        print("This will open a browser to authenticate.")
         print("All three services authenticate with a single sign-in.\n")
 
+        # Use local server flow - starts a temporary server to receive the OAuth callback
+        # This works reliably and handles the redirect_uri automatically
         creds = flow.run_local_server(
-            port=8099,
-            prompt="consent",
-            access_type="offline",
+            port=0,  # Use any available port
+            authorization_prompt_message="Visit this URL to authenticate:\n{url}",
+            success_message="Authentication successful! You can close this tab.",
+            open_browser=True,
         )
 
         TOKEN_FILE.parent.mkdir(parents=True, exist_ok=True)

@@ -22,19 +22,15 @@ import time
 from datetime import datetime, timedelta
 from pathlib import Path
 
-STATE_DIR = Path("/home/executive-assistant/workspace/state")
+from config import STATE_DIR, INTEGRATIONS
+from utils import log_to_file
+
 SCHEDULE_FILE = STATE_DIR / "dream_schedule.json"
-INTEGRATIONS = Path("/home/executive-assistant/integrations")
 LOG_FILE = STATE_DIR / "dream_scheduler.log"
 
 
 def log(message: str):
-    """Log to file and stdout."""
-    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    line = f"[{timestamp}] {message}"
-    print(line)
-    with open(LOG_FILE, "a") as f:
-        f.write(line + "\n")
+    log_to_file(LOG_FILE, message)
 
 
 def execute_dream(duration: str = "short") -> dict:

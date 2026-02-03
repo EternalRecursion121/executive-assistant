@@ -15,14 +15,13 @@ class ClaudeClient:
     def __init__(
         self,
         workspace: Path,
-        timeout: int = 500,
+        timeout: int = 600,
         claude_path: str = "claude",
     ):
         self.workspace = Path(workspace)
         self.timeout = timeout
         self.claude_path = claude_path
         self.session_file = self.workspace / ".claude_session_id"
-        self.lock = asyncio.Lock()
 
         # Ensure workspace exists
         self.workspace.mkdir(parents=True, exist_ok=True)
@@ -53,93 +52,89 @@ class ClaudeClient:
         Returns:
             Claude's text response
         """
-        async with self.lock:
-            # Build command (no session resume - keeps responses fast)
-            cmd = [
-                self.claude_path,
-                "--print",
-                "--verbose",
-                "--output-format", "stream-json",
-                "--dangerously-skip-permissions",
-            ]
+        # Build command (no session resume - keeps responses fast)
+        cmd = [
+            self.claude_path,
+            "--print",
+            "--verbose",
+            "--output-format", "stream-json",
+            "--dangerously-skip-permissions",
+        ]
 
-            if system_prompt:
-                cmd.extend(["--system-prompt", system_prompt])
+        if system_prompt:
+            cmd.extend(["--system-prompt", system_prompt])
 
-            cmd.append(message)
+        cmd.append(message)
 
-            logger.info(f"Running claude command: {' '.join(cmd[:6])}...")
+        logger.info(f"Running claude command: {' '.join(cmd[:6])}...")
 
-            # Execute Claude CLI
-            process = await asyncio.create_subprocess_exec(
-                *cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                cwd=str(self.workspace),
-            )
+        # Execute Claude CLI
+        process = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            cwd=str(self.workspace),
+        )
 
-            full_response = ""
-            new_session_id = None
+        full_response = ""
+        new_session_id = None
 
+        try:
+            # Read all stdout at once to avoid readline buffer limits on large JSON
             try:
-                # Parse streaming JSON output
-                while True:
-                    try:
-                        line = await asyncio.wait_for(
-                            process.stdout.readline(),
-                            timeout=self.timeout,
-                        )
-                    except asyncio.TimeoutError:
-                        process.kill()
-                        return "Request timed out. Please try again."
+                stdout_data, stderr_data = await asyncio.wait_for(
+                    process.communicate(),
+                    timeout=self.timeout,
+                )
+            except asyncio.TimeoutError:
+                process.kill()
+                return "Request timed out. Please try again."
 
-                    if not line:
-                        break
+            # Parse streaming JSON output line by line
+            for line in stdout_data.decode().splitlines():
+                if not line.strip():
+                    continue
 
-                    try:
-                        data = json.loads(line.decode())
-                        logger.debug(f"Claude JSON type: {data.get('type')}")
+                try:
+                    data = json.loads(line)
+                    logger.debug(f"Claude JSON type: {data.get('type')}")
 
-                        # Extract session ID from init message
-                        if data.get("type") == "system" and data.get("subtype") == "init":
+                    # Extract session ID from init message
+                    if data.get("type") == "system" and data.get("subtype") == "init":
+                        new_session_id = data.get("session_id")
+
+                    # Get final response from result message
+                    if data.get("type") == "result":
+                        logger.info(f"Result message: {json.dumps(data)[:500]}")
+                        full_response = data.get("result", "")
+                        if data.get("session_id"):
                             new_session_id = data.get("session_id")
 
-                        # Get final response from result message
-                        if data.get("type") == "result":
-                            logger.info(f"Result message: {json.dumps(data)[:500]}")
-                            full_response = data.get("result", "")
-                            if data.get("session_id"):
-                                new_session_id = data.get("session_id")
+                except json.JSONDecodeError as e:
+                    logger.warning(f"JSON decode error: {e}, line: {line[:100]}")
+                    continue
 
-                    except json.JSONDecodeError as e:
-                        logger.warning(f"JSON decode error: {e}, line: {line[:100]}")
-                        continue
+            # Check stderr for errors
+            if stderr_data:
+                logger.error(f"Claude stderr: {stderr_data.decode()}")
 
-                await process.wait()
+        except Exception as e:
+            process.kill()
+            logger.error(f"Exception in Claude call: {e}")
+            return f"Error communicating with Claude: {e}"
 
-                # Check stderr for errors
-                stderr = await process.stderr.read()
-                if stderr:
-                    logger.error(f"Claude stderr: {stderr.decode()}")
+        logger.info(f"Claude response length: {len(full_response)}")
 
-            except Exception as e:
-                process.kill()
-                logger.error(f"Exception in Claude call: {e}")
-                return f"Error communicating with Claude: {e}"
+        # Save session for conversation continuity
+        if new_session_id:
+            self._save_session_id(new_session_id)
 
-            logger.info(f"Claude response length: {len(full_response)}")
-
-            # Save session for conversation continuity
-            if new_session_id:
-                self._save_session_id(new_session_id)
-
-            return full_response.strip() if full_response else "No response received."
+        return full_response.strip() if full_response else "No response received."
 
     async def reset_session(self) -> None:
         """Clear the current session to start fresh."""
-        async with self.lock:
-            if self.session_file.exists():
-                self.session_file.unlink()
+        if self.session_file.exists():
+            self.session_file.unlink()
 
     async def should_respond(
         self,
@@ -169,7 +164,7 @@ Reply with ONLY "yes" or "no" - nothing else."""
             "--print",
             "--output-format", "text",
             "--dangerously-skip-permissions",
-            "--model", "claude-haiku-4-20250514",  # Use haiku for fast decisions
+            "--model", "haiku",  # Use haiku for fast decisions
             "-p", decision_prompt,
         ]
 

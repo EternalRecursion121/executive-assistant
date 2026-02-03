@@ -30,8 +30,12 @@ import uuid
 from dateutil import parser as date_parser
 from dateutil.relativedelta import relativedelta
 
-STATE_FILE = Path("/home/executive-assistant/workspace/state/reminders.json")
-PERMISSIONS_FILE = Path("/home/executive-assistant/workspace/state/permissions.json")
+# Add integrations dir to path for config import
+sys.path.insert(0, str(Path(__file__).parent))
+from config import STATE_DIR, now_local
+
+STATE_FILE = STATE_DIR / "reminders.json"
+PERMISSIONS_FILE = STATE_DIR / "permissions.json"
 
 
 def check_permission(user_id: str, capability: str = "reminders") -> bool:
@@ -84,7 +88,7 @@ def save_reminders(reminders: list[dict]) -> None:
 
 def parse_time(time_str: str) -> Optional[datetime]:
     """Parse natural language time string into datetime."""
-    now = datetime.now()
+    now = now_local()
     time_str = time_str.lower().strip()
 
     # Handle relative times: "in X hours/minutes/days"
@@ -176,7 +180,7 @@ def add_reminder(user_id: str, message: str, time_str: str, recurring: Optional[
         "user_id": user_id,
         "message": message,
         "due_at": due_at.isoformat(),
-        "created_at": datetime.now().isoformat(),
+        "created_at": now_local().isoformat(),
     }
 
     if recurring:
@@ -270,7 +274,7 @@ def reschedule_recurring(reminder: dict, now: datetime) -> Optional[dict]:
 def check_due_reminders() -> list[dict]:
     """Check for due reminders and reschedule recurring ones. Returns JSON for the bot."""
     reminders = load_reminders()
-    now = datetime.now()
+    now = now_local()
 
     due = []
     remaining = []

@@ -21,7 +21,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-STATE_DIR = Path("/home/executive-assistant/workspace/state")
+from config import STATE_DIR
+
 SCHEMA_FILE = STATE_DIR / "schema.json"
 
 

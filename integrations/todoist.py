@@ -25,8 +25,9 @@ except ImportError:
     print("pip install todoist-api-python")
     sys.exit(1)
 
+from config import PERMISSIONS_FILE
+
 API_TOKEN = os.environ.get("TODOIST_API_TOKEN")
-PERMISSIONS_FILE = Path("/home/executive-assistant/workspace/state/permissions.json")
 
 
 def check_permission_for_user(user_id: str, capability: str) -> bool:

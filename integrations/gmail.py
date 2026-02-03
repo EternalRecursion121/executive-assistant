@@ -33,8 +33,9 @@ except ImportError:
     print("pip install google-auth-oauthlib google-api-python-client")
     sys.exit(1)
 
-WORKSPACE = Path("/home/executive-assistant/workspace")
-TOKEN_FILE = WORKSPACE / "state" / "google_token.json"
+from config import STATE_DIR
+
+TOKEN_FILE = STATE_DIR / "google_token.json"
 
 SCOPES = [
     "https://www.googleapis.com/auth/calendar",

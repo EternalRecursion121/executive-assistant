@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 from typing import Optional
 
-PERMISSIONS_FILE = Path("/home/executive-assistant/workspace/state/permissions.json")
+PERMISSIONS_FILE = Path("/home/iris/executive-assistant/workspace/state/permissions.json")
 
 # All available capabilities
 ALL_CAPABILITIES = {
@@ -141,17 +141,17 @@ def get_allowed_tools_prompt(user_id: str) -> str:
         sections.append("""
 **Reminders:**
 ```bash
-python /home/executive-assistant/integrations/reminders.py add "<user_id>" "<message>" "<time>"
-python /home/executive-assistant/integrations/reminders.py list [user_id]
-python /home/executive-assistant/integrations/reminders.py remove <id>
+python /home/iris/executive-assistant/integrations/reminders.py add "<user_id>" "<message>" "<time>"
+python /home/iris/executive-assistant/integrations/reminders.py list [user_id]
+python /home/iris/executive-assistant/integrations/reminders.py remove <id>
 ```""")
 
     if "calendar.read" in caps or "calendar.write" in caps:
         cal_cmds = []
         if "calendar.read" in caps:
-            cal_cmds.append('python /home/executive-assistant/integrations/google_calendar.py list [days]')
+            cal_cmds.append('python /home/iris/executive-assistant/integrations/google_calendar.py list [days]')
         if "calendar.write" in caps:
-            cal_cmds.append('python /home/executive-assistant/integrations/google_calendar.py add "<title>" "<start>" "<end>" ["<description>"]')
+            cal_cmds.append('python /home/iris/executive-assistant/integrations/google_calendar.py add "<title>" "<start>" "<end>" ["<description>"]')
 
         sections.append(f"""
 **Google Calendar:**
@@ -162,11 +162,11 @@ python /home/executive-assistant/integrations/reminders.py remove <id>
     if "todoist.read" in caps or "todoist.write" in caps:
         todo_cmds = []
         if "todoist.read" in caps:
-            todo_cmds.append('python /home/executive-assistant/integrations/todoist.py list [project]')
-            todo_cmds.append('python /home/executive-assistant/integrations/todoist.py projects')
+            todo_cmds.append('python /home/iris/executive-assistant/integrations/todoist.py list [project]')
+            todo_cmds.append('python /home/iris/executive-assistant/integrations/todoist.py projects')
         if "todoist.write" in caps:
-            todo_cmds.append('python /home/executive-assistant/integrations/todoist.py add "<content>" [--project "<name>"] [--due "<date>"]')
-            todo_cmds.append('python /home/executive-assistant/integrations/todoist.py complete <task_id>')
+            todo_cmds.append('python /home/iris/executive-assistant/integrations/todoist.py add "<content>" [--project "<name>"] [--due "<date>"]')
+            todo_cmds.append('python /home/iris/executive-assistant/integrations/todoist.py complete <task_id>')
 
         sections.append(f"""
 **Todoist:**
@@ -178,10 +178,10 @@ python /home/executive-assistant/integrations/reminders.py remove <id>
         sections.append("""
 **Gmail (read-only):**
 ```bash
-python /home/executive-assistant/integrations/gmail.py list [max_results]
-python /home/executive-assistant/integrations/gmail.py search "<query>"
-python /home/executive-assistant/integrations/gmail.py read <message_id>
-python /home/executive-assistant/integrations/gmail.py unread
+python /home/iris/executive-assistant/integrations/gmail.py list [max_results]
+python /home/iris/executive-assistant/integrations/gmail.py search "<query>"
+python /home/iris/executive-assistant/integrations/gmail.py read <message_id>
+python /home/iris/executive-assistant/integrations/gmail.py unread
 ```
 Search syntax: "from:x", "subject:x", "is:unread", "after:2024/01/01", "has:attachment"
 """)
@@ -189,12 +189,12 @@ Search syntax: "from:x", "subject:x", "is:unread", "after:2024/01/01", "has:atta
     if "drive.read" in caps or "drive.write" in caps:
         drive_cmds = []
         if "drive.read" in caps:
-            drive_cmds.append('python /home/executive-assistant/integrations/google_drive.py list [query]')
-            drive_cmds.append('python /home/executive-assistant/integrations/google_drive.py read <file_id>')
-            drive_cmds.append('python /home/executive-assistant/integrations/google_drive.py info <file_id>')
+            drive_cmds.append('python /home/iris/executive-assistant/integrations/google_drive.py list [query]')
+            drive_cmds.append('python /home/iris/executive-assistant/integrations/google_drive.py read <file_id>')
+            drive_cmds.append('python /home/iris/executive-assistant/integrations/google_drive.py info <file_id>')
         if "drive.write" in caps:
-            drive_cmds.append('python /home/executive-assistant/integrations/google_drive.py create "<name>" "<content>" [--type doc|sheet|text]')
-            drive_cmds.append('python /home/executive-assistant/integrations/google_drive.py update <file_id> "<content>"')
+            drive_cmds.append('python /home/iris/executive-assistant/integrations/google_drive.py create "<name>" "<content>" [--type doc|sheet|text]')
+            drive_cmds.append('python /home/iris/executive-assistant/integrations/google_drive.py update <file_id> "<content>"')
 
         sections.append(f"""
 **Google Drive:**

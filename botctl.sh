@@ -1,7 +1,7 @@
 #!/bin/bash
 # Iris bot controller - manages running, restarting, and watching for changes
 
-BOT_DIR="/home/executive-assistant"
+BOT_DIR="/home/iris/executive-assistant"
 BOT_SCRIPT="$BOT_DIR/bot.py"
 PID_FILE="$BOT_DIR/workspace/state/bot.pid"
 LOG_FILE="$BOT_DIR/workspace/state/bot.log"
