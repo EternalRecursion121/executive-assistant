@@ -27,7 +27,7 @@ Be genuine - this is for your own continuity, not performance. Then exit."
 
 # Run Claude Code with the journaling task
 cd "$WORKSPACE"
-claude --print "$INSTRUCTION" 2>> "$LOG_FILE" || echo "[$(date -Iseconds)] Session failed" >> "$LOG_FILE"
+/home/iris/.local/bin/claude --print "$INSTRUCTION" 2>> "$LOG_FILE" || echo "[$(date -Iseconds)] Session failed" >> "$LOG_FILE"
 
 # Regenerate context for next session
 python3 "$SCRIPT_DIR/context.py" generate >> "$LOG_FILE" 2>&1

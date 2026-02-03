@@ -201,7 +201,7 @@ def run_claude(prompt: str, timeout: int = 60) -> str:
             text=True,
             timeout=timeout,
             cwd=str(WORKSPACE),
-            env={**os.environ, "PATH": "/home/iris/.local/node_modules/.bin:" + os.environ.get("PATH", "")}
+            env={**os.environ, "PATH": "/home/iris/.local/bin:" + os.environ.get("PATH", "")}
         )
         return result.stdout.strip() if result.returncode == 0 else ""
     except:

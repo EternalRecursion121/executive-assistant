@@ -3,7 +3,7 @@
 # Run at 11pm to start a night of random dreaming
 
 cd /home/iris/executive-assistant
-export PATH="/home/iris/.local/node_modules/.bin:$PATH"
+export PATH="/home/iris/.local/bin:$PATH"
 export HOME="/home/iris"
 
 # Source environment variables if they exist

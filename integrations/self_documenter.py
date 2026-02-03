@@ -205,7 +205,7 @@ Only suggest changes for genuinely missing items. Be conservative."""
             capture_output=True,
             text=True,
             timeout=120,
-            env={**os.environ, "PATH": "/home/iris/.local/node_modules/.bin:" + os.environ.get("PATH", "")}
+            env={**os.environ, "PATH": "/home/iris/.local/bin:" + os.environ.get("PATH", "")}
         )
         return result.stdout.strip() if result.returncode == 0 else None
     except Exception as e:

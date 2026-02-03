@@ -30,7 +30,7 @@ from config import WORKSPACE
 from vault_retriever import search, get_context, get_related, get_note_summary
 from knowledge import read_note
 
-CLAUDE_PATH = "claude"
+CLAUDE_PATH = "/home/iris/.local/bin/claude"
 
 
 async def query_with_context(query: str, vault: str = None, max_notes: int = 5) -> dict:

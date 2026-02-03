@@ -178,6 +178,10 @@ def gather_context() -> dict:
 def run_claude(prompt: str, timeout: int = 180) -> str:
     """Run a prompt through Claude CLI using stdin to avoid arg length limits."""
     try:
+        # Ensure claude is in PATH - it's at /home/iris/.local/bin/claude
+        env = os.environ.copy()
+        env["PATH"] = "/home/iris/.local/bin:" + env.get("PATH", "")
+
         result = subprocess.run(
             ["claude", "-p", "-", "--output-format", "text"],
             input=prompt,
@@ -185,7 +189,7 @@ def run_claude(prompt: str, timeout: int = 180) -> str:
             text=True,
             timeout=timeout,
             cwd=str(WORKSPACE),
-            env={**os.environ, "PATH": "/home/iris/.local/node_modules/.bin:" + os.environ.get("PATH", "")}
+            env=env
         )
         return result.stdout.strip() if result.returncode == 0 else f"Error: {result.stderr}"
     except subprocess.TimeoutExpired:

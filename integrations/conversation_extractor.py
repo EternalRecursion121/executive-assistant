@@ -26,7 +26,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 from config import WORKSPACE, VENV_PYTHON
 from user_memory import load_memory, save_memory, add_note, add_interest, add_thread
 
-CLAUDE_PATH = "claude"
+CLAUDE_PATH = "/home/iris/.local/bin/claude"
 
 
 async def extract_from_conversation(user_id: str, conversation: str) -> dict:
