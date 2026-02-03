@@ -163,6 +163,8 @@ async def on_ready():
         check_channel_message_queue.start()
     if not check_file_queue.is_running():
         check_file_queue.start()
+    if not check_stale_conversations.is_running():
+        check_stale_conversations.start()
 
 
 async def handle_research_thread(message: discord.Message):
@@ -289,6 +291,11 @@ async def on_message(message: discord.Message):
 
     logger.info(f"User {perms.get('name', user_id)} ({perms['role']}): {content[:50]}...")
 
+    # Add to conversation buffer for post-conversation memory extraction
+    # Include both user message and any reply context
+    buffer_content = f"[{message.author.display_name}]: {content}"
+    context_builder.add_to_conversation_buffer(user_id, buffer_content)
+
     # Check if this is a questions channel (always reply in thread)
     use_thread = (
         message.guild
@@ -334,6 +341,12 @@ async def on_message(message: discord.Message):
             # Send response, splitting if necessary
             for chunk in split_message(response):
                 await target_channel.send(chunk)
+
+            # Also add Claude's response to conversation buffer
+            context_builder.add_to_conversation_buffer(
+                user_id,
+                f"[Iris]: {response[:1000]}"  # Truncate long responses
+            )
 
         except Exception as e:
             logger.error(f"Error processing message: {e}", exc_info=True)
@@ -541,6 +554,21 @@ async def check_file_queue():
 @check_file_queue.before_loop
 async def before_check_file_queue():
     """Wait for bot to be ready before checking file queue."""
+    await bot.wait_until_ready()
+
+
+@tasks.loop(seconds=60)
+async def check_stale_conversations():
+    """Check for stale conversations and extract memories."""
+    try:
+        await context_builder.check_and_extract_stale_conversations()
+    except Exception as e:
+        logger.error(f"Error checking stale conversations: {e}")
+
+
+@check_stale_conversations.before_loop
+async def before_check_stale_conversations():
+    """Wait for bot to be ready before checking stale conversations."""
     await bot.wait_until_ready()
 
 

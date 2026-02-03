@@ -215,6 +215,43 @@ Tools that handle specific tasks without interrupting conversation flow:
 |--------|---------|
 | `note_taker.py` | Background note capture (insights, patterns, questions, connections) |
 | `vault_retriever.py` | Intelligent vault search and context retrieval |
+| `vault_agent.py` | Haiku-powered vault traversal and summarization |
+| `conversation_extractor.py` | Extracts facts/interests from conversations (runs automatically) |
+
+### Vault Agent (vault_agent.py)
+
+A lightweight Haiku-powered subagent for searching and synthesizing vault contents. Use this when you need context from notes without making multiple retrieval calls.
+
+```bash
+# Answer a question using vault contents
+venv/bin/python integrations/vault_agent.py query "What has Samuel written about AI alignment?"
+
+# Summarize everything in the vaults about a topic
+venv/bin/python integrations/vault_agent.py summarize "identity"
+
+# Find non-obvious connections around a topic
+venv/bin/python integrations/vault_agent.py connections "tools for thought"
+```
+
+**When to use:**
+- User asks about something that might be in the vaults
+- You want to build on prior thinking rather than starting fresh
+- You need comprehensive context on a topic quickly
+
+The agent searches both vaults, reads relevant notes, and uses Haiku to synthesize an answer.
+
+### Conversation Extractor (conversation_extractor.py)
+
+Runs automatically after conversations end (5 min inactivity). Extracts:
+- Facts about the user (name, projects, preferences)
+- Interests and topics they care about
+- Ongoing threads to track
+- Decisions they made
+
+You can also trigger it manually:
+```bash
+venv/bin/python integrations/conversation_extractor.py extract "<user_id>" "<conversation_text>"
+```
 
 ## Heartbeat & Task Tracking
 
