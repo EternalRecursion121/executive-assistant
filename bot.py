@@ -72,6 +72,16 @@ ALLOWED_GUILD_IDS = set(
     "1463663917849907454",  # Original guild
     "1464568327044071540",  # Added by Samuel
     "1465098921255764090",  # Jacob's server
+    "1467315922586046664",  # Home server (monitor all messages)
+}
+
+# Home server - monitor all messages, not just mentions
+HOME_SERVER_ID = "1467315922586046664"
+AUDIT_LOG_CHANNEL_ID = "1468531026719412362"
+
+# Whitelisted bot IDs (bots we respond to)
+WHITELISTED_BOT_IDS = {
+    "1468648541617651908",  # Pantalaimon
 }
 WORKSPACE = Path("/home/iris/executive-assistant/workspace")
 CLAUDE_TIMEOUT = 600  # 10 minutes
@@ -89,6 +99,20 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 # Initialize components
 claude = ClaudeClient(workspace=WORKSPACE, timeout=CLAUDE_TIMEOUT)
 context_builder = ContextBuilder(workspace=WORKSPACE)
+
+
+async def audit_log(action: str, user: str, details: str = None):
+    """Log an action to the audit log channel."""
+    try:
+        channel = bot.get_channel(int(AUDIT_LOG_CHANNEL_ID))
+        if channel:
+            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            msg = f"`{timestamp}` **{action}** by {user}"
+            if details:
+                msg += f"\n> {details[:500]}"
+            await channel.send(msg)
+    except Exception as e:
+        logger.error(f"Failed to write audit log: {e}")
 
 
 def load_research_threads_config() -> dict:
@@ -255,9 +279,12 @@ As Iris, provide your initial thoughts, relevant connections, questions to explo
 @bot.event
 async def on_message(message: discord.Message):
     """Handle incoming messages."""
-    # Ignore bot messages
+    # Ignore bot messages (except whitelisted bots like Pantalaimon)
     if message.author.bot:
-        return
+        if str(message.author.id) not in WHITELISTED_BOT_IDS:
+            return
+        # Whitelisted bot - log and continue processing
+        logger.info(f"Processing message from whitelisted bot: {message.author.name} ({message.author.id})")
 
     # Log all incoming messages for debugging
     guild_name = message.guild.name if message.guild else "DM"
@@ -279,6 +306,7 @@ async def on_message(message: discord.Message):
     # Check if this is a DM or a mention in a guild
     is_dm = isinstance(message.channel, discord.DMChannel)
     is_mention = bot.user in message.mentions if message.guild else False
+    is_home_server = message.guild and str(message.guild.id) == HOME_SERVER_ID
 
     # Remove bot mention from message content for cleaner processing
     content = message.content
@@ -291,6 +319,10 @@ async def on_message(message: discord.Message):
     # Check permissions first
     user_id = str(message.author.id)
     perms = get_user_permissions(user_id)
+
+    # Home server: always respond (treat like DM), unless in audit-log channel
+    if is_home_server and str(message.channel.id) != AUDIT_LOG_CHANNEL_ID:
+        is_mention = True  # Force response
 
     # For non-mentions in guilds, just observe (add to context) but check if should respond
     if not is_dm and not is_mention:
@@ -385,6 +417,14 @@ async def on_message(message: discord.Message):
 
             # Track successful response
             track_response(True)
+
+            # Audit log for home server interactions
+            if is_home_server:
+                await audit_log(
+                    "MESSAGE_PROCESSED",
+                    f"{message.author.display_name} ({user_id})",
+                    f"Request: {content[:100]}..."
+                )
 
             # Also add Claude's response to conversation buffer
             context_builder.add_to_conversation_buffer(
@@ -656,6 +696,7 @@ async def restart_bot(ctx: commands.Context):
 
     await ctx.send("Restarting... 🔄")
     logger.info(f"Restart requested by {perms.get('name', user_id)}")
+    await audit_log("BOT_RESTART", perms.get('name', user_id))
 
     # Write restart signal file with channel to notify on return
     restart_file = WORKSPACE / "state" / "restart_requested"
@@ -694,6 +735,7 @@ async def reload_modules(ctx: commands.Context):
 
         await ctx.send("Modules reloaded! ✨")
         logger.info(f"Hot reload performed by {perms.get('name', user_id)}")
+        await audit_log("HOT_RELOAD", perms.get('name', user_id))
     except Exception as e:
         await ctx.send(f"Reload failed: {e}")
         logger.error(f"Hot reload failed: {e}", exc_info=True)

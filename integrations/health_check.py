@@ -123,13 +123,16 @@ def check_response_stats() -> tuple[bool, str]:
 def check_claude_cli() -> tuple[bool, str]:
     """Test that Claude CLI responds."""
     try:
-        # Run as iris user
+        # Run directly - we're already running as iris
+        # Use full path since cron doesn't have ~/.local/bin in PATH
+        claude_path = "/home/iris/.local/bin/claude"
         result = subprocess.run(
-            ["su", "-", "iris", "-c",
-             "timeout 30 claude --print --output-format text -p 'respond with just the word: working'"],
+            ["timeout", "30", claude_path, "--print", "--output-format", "text",
+             "-p", "respond with just the word: working"],
             capture_output=True,
             text=True,
-            timeout=35
+            timeout=35,
+            env={**os.environ, "HOME": "/home/iris"}
         )
 
         output = result.stdout.strip().lower()

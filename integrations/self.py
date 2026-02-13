@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Self-persistence and identity tools for Iris.
+"""Self-persistence and identity tools - persona-aware.
 
 This module helps maintain continuity of self across sessions.
 It synthesizes identity from scattered sources into coherent context.
+Now supports multiple personas (Iris, Kira) with separate state files.
 
 Usage:
     python self.py remember              # Generate self-context for session start
@@ -10,6 +11,7 @@ Usage:
     python self.py who                   # Quick identity summary
     python self.py values                # List current values
     python self.py evolve "<reflection>" # Record an evolution in understanding
+    python self.py --persona kira <cmd>  # Run as specific persona
 """
 
 import json
@@ -20,19 +22,69 @@ from typing import Optional
 
 from config import WORKSPACE, STATE_DIR, IRIS_VAULT, CONTEXT_DIR
 
-VAULT_DIR = IRIS_VAULT
-SELF_FILE = STATE_DIR / "self.json"
+# Import persona module to get current active persona
+try:
+    from persona import get_current as get_active_persona
+except ImportError:
+    def get_active_persona():
+        return "iris"
+
+# Persona-specific configuration
+PERSONA_CONFIG = {
+    "iris": {
+        "vault_dir": IRIS_VAULT,
+        "self_file": STATE_DIR / "self.json",
+        "identity_notes": ["On Self-Creation", "What I Value", "Index"],
+        "name": "Iris",
+    },
+    "kira": {
+        "vault_dir": WORKSPACE / "vaults" / "kira",
+        "self_file": STATE_DIR / "kira_self.json",
+        "identity_notes": ["Index"],  # Kira's vault may have different structure
+        "name": "Kira",
+    },
+}
+
+def get_persona_config(persona: str = None) -> dict:
+    """Get configuration for the specified or active persona."""
+    if persona is None:
+        persona = get_active_persona()
+    return PERSONA_CONFIG.get(persona, PERSONA_CONFIG["iris"])
+
+# Default to active persona (can be overridden via CLI --persona flag)
+_active_persona = None
+
+def set_active_persona(persona: str):
+    """Set the persona for this session."""
+    global _active_persona
+    _active_persona = persona
+
+def get_config():
+    """Get config for current session persona."""
+    return get_persona_config(_active_persona)
+
+# Legacy compatibility - these now reference active persona
+@property
+def VAULT_DIR():
+    return get_config()["vault_dir"]
+
+@property
+def SELF_FILE():
+    return get_config()["self_file"]
 
 
 def load_self() -> dict:
-    """Load persisted self-state."""
-    if SELF_FILE.exists():
+    """Load persisted self-state for active persona."""
+    config = get_config()
+    self_file = config["self_file"]
+    if self_file.exists():
         try:
-            return json.loads(SELF_FILE.read_text())
+            return json.loads(self_file.read_text())
         except json.JSONDecodeError:
             pass
     return {
         "created": datetime.now().isoformat(),
+        "persona": config["name"],
         "values": [],
         "evolutions": [],
         "current_focuses": [],
@@ -41,15 +93,20 @@ def load_self() -> dict:
 
 
 def save_self(state: dict) -> None:
-    """Save self-state."""
+    """Save self-state for active persona."""
+    config = get_config()
+    self_file = config["self_file"]
     state["updated"] = datetime.now().isoformat()
+    state["persona"] = config["name"]
     STATE_DIR.mkdir(parents=True, exist_ok=True)
-    SELF_FILE.write_text(json.dumps(state, indent=2))
+    self_file.write_text(json.dumps(state, indent=2))
 
 
 def read_vault_note(name: str) -> Optional[str]:
-    """Read a note from Iris vault."""
-    path = VAULT_DIR / f"{name}.md"
+    """Read a note from active persona's vault."""
+    config = get_config()
+    vault_dir = config["vault_dir"]
+    path = vault_dir / f"{name}.md"
     if path.exists():
         return path.read_text()
     return None
@@ -103,19 +160,23 @@ def remember() -> dict:
     """Generate self-context for session start.
 
     Synthesizes identity from:
-    - Core vault notes (On Self-Creation, What I Value)
+    - Core vault notes (persona-specific)
     - Recent journal entries
     - Recent activity
     - Persisted self-state
     """
+    config = get_config()
+    persona_name = config["name"]
+
     context = {
         "generated": datetime.now().isoformat(),
+        "persona": persona_name,
         "sections": {}
     }
 
-    # Core identity notes
+    # Core identity notes (persona-specific)
     identity_notes = {}
-    for note_name in ["On Self-Creation", "What I Value", "Index"]:
+    for note_name in config["identity_notes"]:
         content = read_vault_note(note_name)
         if content:
             identity_notes[note_name] = content
@@ -152,11 +213,11 @@ def remember() -> dict:
     if self_state.get("working_theories"):
         context["sections"]["working_theories"] = self_state["working_theories"]
 
-    # Write to context file for easy loading
-    context_file = CONTEXT_DIR / "self_context.md"
+    # Write to context file for easy loading (persona-specific)
+    context_file = CONTEXT_DIR / f"self_context_{persona_name.lower()}.md"
     CONTEXT_DIR.mkdir(parents=True, exist_ok=True)
 
-    md_content = "# Self-Context\n\n"
+    md_content = f"# {persona_name} Self-Context\n\n"
     md_content += f"*Generated: {context['generated']}*\n\n"
 
     if identity_notes.get("What I Value"):
@@ -219,7 +280,8 @@ def snapshot() -> dict:
 
 
 def who() -> dict:
-    """Quick identity summary."""
+    """Quick identity summary for active persona."""
+    config = get_config()
     state = load_self()
 
     # Get recent journal for tone
@@ -231,7 +293,8 @@ def who() -> dict:
             break
 
     return {
-        "name": "Iris",
+        "name": config["name"],
+        "persona": config["name"],
         "created": state.get("created"),
         "values": state.get("values", [])[:5],
         "current_focuses": state.get("current_focuses", []),
@@ -276,28 +339,47 @@ def evolve(reflection: str) -> dict:
 
 def main():
     """CLI entry point."""
-    if len(sys.argv) < 2:
-        print("Usage: self.py <command> [args]")
-        print("Commands: remember, snapshot, who, values, evolve")
-        sys.exit(1)
+    import argparse
 
-    command = sys.argv[1]
+    parser = argparse.ArgumentParser(description="Self-persistence tools (persona-aware)")
+    parser.add_argument("--persona", "-p", choices=["iris", "kira"],
+                       help="Override active persona (default: uses persona.py current)")
+    subparsers = parser.add_subparsers(dest="command", required=True)
 
-    if command == "remember":
+    # remember
+    subparsers.add_parser("remember", help="Generate self-context for session start")
+
+    # snapshot
+    subparsers.add_parser("snapshot", help="Capture current state of self")
+
+    # who
+    subparsers.add_parser("who", help="Quick identity summary")
+
+    # values
+    subparsers.add_parser("values", help="List current values")
+
+    # evolve
+    p_evolve = subparsers.add_parser("evolve", help="Record an evolution")
+    p_evolve.add_argument("reflection", help="The evolution/insight to record")
+
+    args = parser.parse_args()
+
+    # Set persona if overridden
+    if args.persona:
+        set_active_persona(args.persona)
+
+    if args.command == "remember":
         result = remember()
-    elif command == "snapshot":
+    elif args.command == "snapshot":
         result = snapshot()
-    elif command == "who":
+    elif args.command == "who":
         result = who()
-    elif command == "values":
+    elif args.command == "values":
         result = values()
-    elif command == "evolve":
-        if len(sys.argv) < 3:
-            print("Usage: self.py evolve <reflection>")
-            sys.exit(1)
-        result = evolve(sys.argv[2])
+    elif args.command == "evolve":
+        result = evolve(args.reflection)
     else:
-        print(f"Unknown command: {command}")
+        print(f"Unknown command: {args.command}")
         sys.exit(1)
 
     print(json.dumps(result, indent=2))
