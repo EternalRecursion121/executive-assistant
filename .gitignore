@@ -1,6 +1,15 @@
 # Environment and secrets
 .env
 .env.*
+.ssh/
+*.pem
+*_rsa
+*_ed25519
+*_ecdsa
+*_dsa
+
+# PearPost local state
+pearpost/
 
 # State and workspace data
 workspace/
