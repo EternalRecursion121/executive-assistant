@@ -1,0 +1,21 @@
+[Unit]
+Description=Iris PearPost Watcher Daemon
+After=network.target
+
+[Service]
+Type=simple
+User=iris
+Group=iris
+WorkingDirectory=/home/iris/executive-assistant
+Environment=PEARPOST_HOME=/home/iris/executive-assistant/workspace/state/pearpost
+Environment=PEARPOST_WAKE_SPOOL=/home/iris/executive-assistant/workspace/state/pearpost_wake.jsonl
+ExecStart=/usr/bin/node /home/iris/executive-assistant/integrations/pearpost_watcher.mjs
+Restart=always
+RestartSec=10
+
+# Logging
+StandardOutput=append:/home/iris/executive-assistant/workspace/state/pearpost_watcher.log
+StandardError=append:/home/iris/executive-assistant/workspace/state/pearpost_watcher.log
+
+[Install]
+WantedBy=multi-user.target

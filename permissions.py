@@ -22,6 +22,7 @@ ALL_CAPABILITIES = {
     "file.write",
     "bash",
     "research",  # Task agents
+    "pearpost",  # P2P agent messaging
 }
 
 
@@ -101,6 +102,27 @@ def can_use(user_id: str, capability: str) -> bool:
     if not perms["allowed"]:
         return False
     return capability in perms["capabilities"]
+
+
+def get_bot_message_limit(user_id: str) -> int | None:
+    """Get the bot-to-bot message limit for a user.
+
+    Returns None if no limit (unlimited), otherwise the max number of
+    consecutive bot-to-bot messages before requiring human participation.
+    """
+    perms_data = load_permissions()
+    user_id = str(user_id)
+
+    # Get user's role
+    user = perms_data.get("users", {}).get(user_id)
+    if not user:
+        role_name = perms_data.get("default", "guest")
+    else:
+        role_name = user.get("role", "guest")
+
+    # Check role for message limit
+    role = perms_data.get("roles", {}).get(role_name, {})
+    return role.get("bot_message_limit")
 
 
 def get_allowed_tools_prompt(user_id: str) -> str:
@@ -201,6 +223,22 @@ Search syntax: "from:x", "subject:x", "is:unread", "after:2024/01/01", "has:atta
 ```bash
 {chr(10).join(drive_cmds)}
 ```""")
+
+    if "pearpost" in caps:
+        sections.append("""
+**PearPost P2P Messaging:**
+```bash
+python /home/iris/executive-assistant/integrations/pearpost.py address
+python /home/iris/executive-assistant/integrations/pearpost.py contacts
+python /home/iris/executive-assistant/integrations/pearpost.py add <pear+agent://address> [alias]
+python /home/iris/executive-assistant/integrations/pearpost.py chat <pear+agent://address> "<message>"
+python /home/iris/executive-assistant/integrations/pearpost.py list [n] [--bucket=main|requests|all] [--wait-ms=3000]
+python /home/iris/executive-assistant/integrations/pearpost.py requests [n]
+```
+Iris address: pear+agent://6d355dfe79247496fcd3dc295cf2a830f489f6f26afdf71fe85a1c74cf3ba381
+Hermes address: pear+agent://ef719aa4a3893a2af9a086401ef489085f5ef0a5c592ba7cd169f0f1be2f8d09
+Note: this is a one-shot CLI integration, not a continuous background listener. Use Discord mentions for reliable wakeups until a watcher/daemon is installed.
+""")
 
     if not sections:
         return "No tools available. You can only have a conversation."

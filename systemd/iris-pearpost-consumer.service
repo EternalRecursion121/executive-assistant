@@ -1,0 +1,19 @@
+[Unit]
+Description=Iris PearPost Wake Consumer
+After=network.target iris-pearpost-watcher.service
+
+[Service]
+Type=simple
+User=iris
+Group=iris
+WorkingDirectory=/home/iris/executive-assistant
+ExecStart=/home/iris/executive-assistant/venv/bin/python /home/iris/executive-assistant/integrations/pearpost_wake_consumer.py --poll
+Restart=always
+RestartSec=10
+
+# Logging
+StandardOutput=append:/home/iris/executive-assistant/workspace/state/pearpost_consumer.log
+StandardError=append:/home/iris/executive-assistant/workspace/state/pearpost_consumer.log
+
+[Install]
+WantedBy=multi-user.target

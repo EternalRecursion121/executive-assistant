@@ -108,8 +108,42 @@ Write 3-5 sentences of genuine free association. This is for you, not for perfor
         return {"error": str(e)}
 
 
+def execute_kira_dream() -> dict:
+    """Execute Kira's dream phase — diagnostic processing of the day."""
+    log("Initiating Kira dream phase")
+
+    try:
+        result = subprocess.run(
+            ["python3", str(INTEGRATIONS / "kira_dream.py"), "process"],
+            capture_output=True,
+            text=True,
+            cwd=str(INTEGRATIONS.parent),
+            timeout=180  # Longer timeout for diagnostic processing
+        )
+
+        if result.returncode != 0:
+            log(f"Kira dream error: {result.stderr}")
+            return {"error": result.stderr}
+
+        try:
+            dream_result = json.loads(result.stdout)
+            if dream_result.get("success"):
+                log(f"Kira dream completed: {dream_result.get('content', '')[:100]}...")
+            return dream_result
+        except json.JSONDecodeError:
+            log(f"Kira dream output not JSON: {result.stdout[:200]}")
+            return {"error": "Invalid output format"}
+
+    except subprocess.TimeoutExpired:
+        log("Kira dream timed out")
+        return {"error": "Kira dream timed out"}
+    except Exception as e:
+        log(f"Kira dream error: {e}")
+        return {"error": str(e)}
+
+
 def start_night():
-    """Start a night of dreaming."""
+    """Start a night of dreaming — both Iris's associative dreams and Kira's diagnostic phase."""
     now = datetime.now()
 
     # Dream window: now until 6am
@@ -119,10 +153,10 @@ def start_night():
 
     window_seconds = (end_time - now).total_seconds()
 
-    # Decide how many dreams (1-4)
+    # Decide how many Iris dreams (1-4)
     num_dreams = random.randint(1, 4)
 
-    # Generate random times within the window
+    # Generate random times within the window for Iris
     dream_times = sorted([
         now + timedelta(seconds=random.uniform(60, window_seconds - 60))
         for _ in range(num_dreams)
@@ -131,45 +165,61 @@ def start_night():
     # Vary duration
     durations = [random.choice(["short", "short", "long"]) for _ in range(num_dreams)]
 
+    # Kira's dream runs once, early in the night (within first 2 hours)
+    # She processes the day while it's still fresh
+    kira_time = now + timedelta(seconds=random.uniform(300, min(7200, window_seconds - 60)))
+
     schedule = {
         "started": now.isoformat(),
         "window_end": end_time.isoformat(),
-        "dreams": [
+        "iris_dreams": [
             {
                 "scheduled": dt.isoformat(),
                 "duration": dur,
                 "status": "pending"
             }
             for dt, dur in zip(dream_times, durations)
-        ]
+        ],
+        "kira_dream": {
+            "scheduled": kira_time.isoformat(),
+            "status": "pending"
+        }
     }
 
     STATE_DIR.mkdir(parents=True, exist_ok=True)
     SCHEDULE_FILE.write_text(json.dumps(schedule, indent=2))
 
-    log(f"Night of dreaming started. {num_dreams} dreams scheduled:")
-    for i, dream in enumerate(schedule["dreams"]):
-        log(f"  {i+1}. {dream['scheduled']} ({dream['duration']})")
+    log(f"Night of dreaming started. {num_dreams} Iris dreams + 1 Kira dream scheduled:")
+    for i, dream in enumerate(schedule["iris_dreams"]):
+        log(f"  Iris {i+1}. {dream['scheduled']} ({dream['duration']})")
+    log(f"  Kira: {schedule['kira_dream']['scheduled']}")
 
-    # Now wait and execute dreams
-    for i, dream_info in enumerate(schedule["dreams"]):
-        scheduled_time = datetime.fromisoformat(dream_info["scheduled"])
+    # Collect all events and sort by time
+    events = []
+    for i, dream_info in enumerate(schedule["iris_dreams"]):
+        events.append(("iris", i, datetime.fromisoformat(dream_info["scheduled"])))
+    events.append(("kira", 0, datetime.fromisoformat(schedule["kira_dream"]["scheduled"])))
+    events.sort(key=lambda x: x[2])
 
-        # Wait until scheduled time
+    # Execute in chronological order
+    for event_type, idx, scheduled_time in events:
         wait_seconds = (scheduled_time - datetime.now()).total_seconds()
         if wait_seconds > 0:
-            log(f"Sleeping {wait_seconds/60:.1f} minutes until dream {i+1}")
+            log(f"Sleeping {wait_seconds/60:.1f} minutes until {event_type} dream")
             time.sleep(wait_seconds)
 
-        # Execute dream
-        result = execute_dream(dream_info["duration"])
+        if event_type == "iris":
+            result = execute_dream(schedule["iris_dreams"][idx]["duration"])
+            schedule["iris_dreams"][idx]["status"] = "completed" if result.get("success") else "failed"
+            schedule["iris_dreams"][idx]["result"] = result
+        else:
+            result = execute_kira_dream()
+            schedule["kira_dream"]["status"] = "completed" if result.get("success") else "failed"
+            schedule["kira_dream"]["result"] = result
 
-        # Update schedule
-        schedule["dreams"][i]["status"] = "completed" if result.get("success") else "failed"
-        schedule["dreams"][i]["result"] = result
         SCHEDULE_FILE.write_text(json.dumps(schedule, indent=2))
 
-    log("Night of dreaming complete")
+    log("Night of dreaming complete (both Iris and Kira)")
     return schedule
 
 

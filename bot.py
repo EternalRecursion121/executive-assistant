@@ -13,7 +13,7 @@ import discord
 from discord.ext import commands, tasks
 
 from assistant_prompt import get_system_prompt
-from permissions import get_user_permissions
+from permissions import get_user_permissions, get_bot_message_limit
 from claude_client import ClaudeClient
 from context_builder import ContextBuilder
 
@@ -82,9 +82,15 @@ AUDIT_LOG_CHANNEL_ID = "1468531026719412362"
 # Whitelisted bot IDs (bots we respond to)
 WHITELISTED_BOT_IDS = {
     "1468648541617651908",  # Pantalaimon
+    "1471481121639370949",  # Sherlock
 }
 WORKSPACE = Path("/home/iris/executive-assistant/workspace")
 CLAUDE_TIMEOUT = 600  # 10 minutes
+
+# Bot-to-bot message tracking
+# Key: channel_id, Value: {"count": int, "last_bot_ids": set}
+# Tracks consecutive bot-to-bot messages per channel
+BOT_MESSAGE_COUNTS: dict[str, dict] = {}
 
 if not DISCORD_TOKEN:
     logger.error("DISCORD_TOKEN environment variable not set")
@@ -206,6 +212,61 @@ def is_allowed_context(message: discord.Message) -> bool:
     return True
 
 
+def check_bot_message_limit(channel_id: str, author_id: str, is_bot: bool) -> tuple[bool, str | None]:
+    """Check if bot-to-bot message limit has been exceeded.
+
+    Args:
+        channel_id: The channel where the message is being sent
+        author_id: The user/bot sending the message
+        is_bot: Whether the author is a bot
+
+    Returns:
+        (allowed, message): allowed is True if the message should be processed,
+                           message is an explanation if blocked
+    """
+    if not is_bot:
+        # Human message resets the counter
+        if channel_id in BOT_MESSAGE_COUNTS:
+            logger.info(f"Human participation in {channel_id} - resetting bot message counter")
+            del BOT_MESSAGE_COUNTS[channel_id]
+        return (True, None)
+
+    # It's a bot - check limits
+    limit = get_bot_message_limit(author_id)
+    if limit is None:
+        # No limit for this bot
+        return (True, None)
+
+    # Initialize or update counter
+    if channel_id not in BOT_MESSAGE_COUNTS:
+        BOT_MESSAGE_COUNTS[channel_id] = {"count": 0, "bot_ids": set()}
+
+    tracker = BOT_MESSAGE_COUNTS[channel_id]
+
+    # This is an incoming message from a bot - check if we should respond
+    # The limit applies to the total back-and-forth, so each bot exchange counts as 2
+    # (their message + our response)
+    current_count = tracker["count"]
+
+    if current_count >= limit:
+        return (False, f"Bot-to-bot limit reached ({limit} exchanges). A human needs to participate to continue.")
+
+    # Allow and increment (will be incremented again when we respond)
+    tracker["count"] += 1
+    tracker["bot_ids"].add(author_id)
+    logger.info(f"Bot message in {channel_id}: {current_count + 1}/{limit}")
+
+    return (True, None)
+
+
+def increment_bot_response_count(channel_id: str) -> None:
+    """Increment the bot message counter after we respond to a bot."""
+    if channel_id in BOT_MESSAGE_COUNTS:
+        BOT_MESSAGE_COUNTS[channel_id]["count"] += 1
+        BOT_MESSAGE_COUNTS[channel_id]["bot_ids"].add(str(bot.user.id))
+        logger.info(f"Iris responded in {channel_id}: {BOT_MESSAGE_COUNTS[channel_id]['count']} total bot messages")
+
+
 @bot.event
 async def on_ready():
     """Called when the bot is ready."""
@@ -223,6 +284,8 @@ async def on_ready():
         check_file_queue.start()
     if not check_stale_conversations.is_running():
         check_stale_conversations.start()
+    if not check_accountability.is_running():
+        check_accountability.start()
 
 
 async def handle_research_thread(message: discord.Message):
@@ -280,11 +343,25 @@ As Iris, provide your initial thoughts, relevant connections, questions to explo
 async def on_message(message: discord.Message):
     """Handle incoming messages."""
     # Ignore bot messages (except whitelisted bots like Pantalaimon)
+    is_whitelisted_bot = False
     if message.author.bot:
         if str(message.author.id) not in WHITELISTED_BOT_IDS:
             return
         # Whitelisted bot - log and continue processing
+        is_whitelisted_bot = True
         logger.info(f"Processing message from whitelisted bot: {message.author.name} ({message.author.id})")
+
+        # Check bot-to-bot message limit
+        channel_id = str(message.channel.id)
+        allowed, limit_msg = check_bot_message_limit(channel_id, str(message.author.id), is_bot=True)
+        if not allowed:
+            logger.info(f"Bot message limit reached in {channel_id}: {limit_msg}")
+            await message.channel.send(f"⏸️ {limit_msg}")
+            return
+    else:
+        # Human message - reset any bot counters for this channel
+        channel_id = str(message.channel.id)
+        check_bot_message_limit(channel_id, str(message.author.id), is_bot=False)
 
     # Log all incoming messages for debugging
     guild_name = message.guild.name if message.guild else "DM"
@@ -307,6 +384,54 @@ async def on_message(message: discord.Message):
     is_dm = isinstance(message.channel, discord.DMChannel)
     is_mention = bot.user in message.mentions if message.guild else False
     is_home_server = message.guild and str(message.guild.id) == HOME_SERVER_ID
+
+    # Log ALL DM attempts for debugging
+    if is_dm:
+        logger.info(f"DM received from {message.author.name} ({message.author.id}), bot={message.author.bot}")
+
+    # HARD BLOCK: Only whitelisted users can DM. No LLM call for unauthorized users.
+    if is_dm and not message.author.bot:
+        user_id = str(message.author.id)
+        from permissions import load_permissions
+        perms_data = load_permissions()
+        whitelisted_users = perms_data.get("users", {})
+        if user_id not in whitelisted_users:
+            logger.warning(f"BLOCKED DM from non-whitelisted user: {message.author.name} ({user_id})")
+            return  # Silent ignore - no response, no LLM call
+        else:
+            logger.info(f"DM from whitelisted user: {message.author.name} ({user_id})")
+
+    # Check for accountability pathway confirmations (DMs only, from humans)
+    if is_dm and not message.author.bot:
+        try:
+            accountability_script = Path("/home/iris/executive-assistant/integrations/accountability.py")
+            if accountability_script.exists():
+                # Check all active pathways for this user
+                process = await asyncio.create_subprocess_exec(
+                    sys.executable,
+                    str(accountability_script),
+                    "status",
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+                stdout, _ = await process.communicate()
+                if stdout:
+                    import json as _json
+                    status = _json.loads(stdout.decode())
+                    # If there are active pathways, check if message confirms any
+                    if status.get("active_count", 0) > 0:
+                        from integrations.accountability import check_confirmation
+                        result = check_confirmation("", content)
+                        if result and result.get("success"):
+                            confirmed_name = result.get("confirmed", "pathway")
+                            next_trigger = result.get("next_trigger")
+                            if next_trigger:
+                                await message.channel.send(f"✅ Confirmed **{confirmed_name}**. Next: {next_trigger}")
+                            else:
+                                await message.channel.send(f"✅ Confirmed **{confirmed_name}**. Complete!")
+                            # Don't return - still process the message normally in case it has other content
+        except Exception as e:
+            logger.error(f"Error checking accountability confirmation: {e}")
 
     # Remove bot mention from message content for cleaner processing
     content = message.content
@@ -417,6 +542,10 @@ async def on_message(message: discord.Message):
 
             # Track successful response
             track_response(True)
+
+            # If responding to a bot, increment the bot message counter
+            if is_whitelisted_bot:
+                increment_bot_response_count(str(message.channel.id))
 
             # Audit log for home server interactions
             if is_home_server:
@@ -654,6 +783,68 @@ async def check_stale_conversations():
 @check_stale_conversations.before_loop
 async def before_check_stale_conversations():
     """Wait for bot to be ready before checking stale conversations."""
+    await bot.wait_until_ready()
+
+
+# Known users for accountability (mirrors dm.py)
+ACCOUNTABILITY_USERS = {
+    "samuel": "672500045249249328",
+    "xi": "208220776619311105",
+    "jacob": "746111068077817887",
+    "lou": "1068673093486248018",
+}
+
+
+@tasks.loop(seconds=30)
+async def check_accountability():
+    """Check for accountability pathway escalations."""
+    accountability_script = Path("/home/iris/executive-assistant/integrations/accountability.py")
+    if not accountability_script.exists():
+        return
+
+    try:
+        process = await asyncio.create_subprocess_exec(
+            sys.executable,
+            str(accountability_script),
+            "check",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, _ = await process.communicate()
+
+        if stdout:
+            try:
+                pings = json.loads(stdout.decode())
+                for ping in pings:
+                    user_name = ping.get("user", "samuel")
+                    user_id = ACCOUNTABILITY_USERS.get(user_name, user_name)
+                    message = ping.get("message")
+                    pathway_name = ping.get("pathway_name", "")
+                    escalation = ping.get("escalation", 0)
+
+                    if user_id and message:
+                        try:
+                            user = await bot.fetch_user(int(user_id))
+                            # Format message with escalation indicator
+                            if escalation > 0:
+                                formatted = f"**[{pathway_name}]** {message}"
+                            elif escalation == -1:
+                                formatted = f"⏹️ {message}"
+                            else:
+                                formatted = f"**[{pathway_name}]** {message}"
+                            await user.send(formatted)
+                            logger.info(f"Sent accountability ping to {user_id}: {pathway_name} (escalation {escalation})")
+                        except Exception as e:
+                            logger.error(f"Failed to send accountability ping: {e}")
+            except json.JSONDecodeError:
+                pass
+    except Exception as e:
+        logger.error(f"Error checking accountability: {e}")
+
+
+@check_accountability.before_loop
+async def before_check_accountability():
+    """Wait for bot to be ready before checking accountability."""
     await bot.wait_until_ready()
 
 
